@@ -1,0 +1,345 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                String   @id @default(cuid())
+  email             String   @unique
+  password          String
+  name              String
+  role              UserRole @default(CLIENT)
+  avatar            String?
+  phone             String?
+  timezone          String?  @default("UTC")
+  signature         String?  // Base64 or URL to signature image
+  twoFactorEnabled  Boolean  @default(false)
+  refreshToken      String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  // Relations
+  notificationPreferences UserNotificationPreferences?
+  company                Company?
+
+  @@map("users")
+}
+
+enum UserRole {
+  ADMIN
+  CLIENT
+}
+
+model Client {
+  id          String        @id @default(cuid())
+  name        String
+  email       String        @unique
+  phone       String
+  country     String
+  status      ClientStatus  @default(LEAD)
+  dateAdded   DateTime      @default(now())
+  kycStatus   KYCStatus     @default(PENDING)
+  accountType String        @default("Client")
+  notes       String?
+  
+  // Relations
+  documents   Document[]
+  invoices    Invoice[]
+  proposals   Proposal[]
+  agreements  Agreement[]
+  expenses    Expense[]
+  clientNotes ClientNote[]
+
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  @@map("clients")
+}
+
+enum ClientStatus {
+  LEAD
+  VERIFIED
+  ACTIVE
+  SUSPENDED
+}
+
+enum KYCStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model Document {
+  id          String   @id @default(cuid())
+  clientId    String?
+  name        String
+  type        String
+  uploadDate  DateTime  @default(now())
+  status      String    @default("Pending")
+  fileUrl     String?
+  fileSize    Int?
+  mimeType    String?
+
+  client      Client?  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("documents")
+}
+
+model Invoice {
+  id          String   @id @default(cuid())
+  clientId    String
+  clientName  String
+  service     String?  // Legacy field
+  amount      Float?   // Legacy field
+  subtotal    Float?
+  taxRate     Float?   @default(20)
+  tax         Float    @default(0)
+  total       Float
+  status      InvoiceStatus @default(UNPAID)
+  dueDate     DateTime
+  issueDate   DateTime @default(now())
+  paidDate    DateTime?
+  notes       String?
+  paymentTerms String?
+
+  // Relations
+  client      Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  lineItems   InvoiceLineItem[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("invoices")
+}
+
+enum InvoiceStatus {
+  PAID
+  UNPAID
+  OVERDUE
+  UPCOMING
+}
+
+model InvoiceLineItem {
+  id          String   @id @default(cuid())
+  invoiceId   String
+  description String
+  amount      Float
+
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("invoice_line_items")
+}
+
+model Proposal {
+  id          String   @id @default(cuid())
+  clientId    String
+  clientName  String
+  service     String
+  fee         Float
+  status      ProposalStatus @default(DRAFT)
+  validUntil  DateTime?
+  notes       String?
+
+  // Relations
+  client      Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("proposals")
+}
+
+enum ProposalStatus {
+  DRAFT
+  SENT
+  ACCEPTED
+  REJECTED
+  EXPIRED
+}
+
+model Agreement {
+  id          String   @id @default(cuid())
+  clientId    String
+  clientName  String
+  proposalId  String?
+  service     String
+  fee         Float
+  status      AgreementStatus @default(DRAFT)
+  startDate   DateTime?
+  endDate     DateTime?
+  notes       String?
+
+  // Relations
+  client      Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("agreements")
+}
+
+enum AgreementStatus {
+  DRAFT
+  ACTIVE
+  COMPLETED
+  TERMINATED
+}
+
+model Expense {
+  id          String   @id @default(cuid())
+  categoryId  String?
+  description String
+  amount      Float
+  date        DateTime @default(now())
+  receiptUrl  String?
+  notes       String?
+
+  // Relations
+  category    ExpenseCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  client      Client?  @relation(fields: [clientId], references: [id], onDelete: SetNull)
+  clientId    String?
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("expenses")
+}
+
+model ExpenseCategory {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+
+  // Relations
+  expenses    Expense[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("expense_categories")
+}
+
+model Company {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  name          String
+  licenseNumber String?
+  address       String?
+  supportEmail  String?
+  supportPhone  String?
+
+  // Relations
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  wallets       WalletAddress[]
+  paymentInstructions String?
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("companies")
+}
+
+model WalletAddress {
+  id            String   @id @default(cuid())
+  companyId     String
+  label         String
+  cryptocurrency String
+  address       String
+  isPrimary     Boolean  @default(false)
+
+  // Relations
+  company       Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("wallet_addresses")
+}
+
+model UserNotificationPreferences {
+  id                    String   @id @default(cuid())
+  userId                String   @unique
+  newClientAdded        Boolean  @default(true)
+  proposalAccepted      Boolean  @default(true)
+  invoiceOverdue        Boolean  @default(true)
+  kycSubmission         Boolean  @default(true)
+  activityLog            Boolean  @default(true)
+  securityAlerts         Boolean  @default(true)
+
+  // Relations
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@map("user_notification_preferences")
+}
+
+model SystemSettings {
+  id            String   @id @default(cuid())
+  taxEnabled    Boolean  @default(false)
+  vatRate       Float?   @default(20)
+  updatedBy     String?  // User ID who last updated
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("system_settings")
+}
+
+model Service {
+  id          String   @id @default(cuid())
+  name        String   @unique
+  description String?
+  isActive    Boolean  @default(true)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("services")
+}
+
+model ClientNote {
+  id          String   @id @default(cuid())
+  clientId    String
+  content     String
+  createdBy   String?  // User ID who created the note
+
+  // Relations
+  client      Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("client_notes")
+}
+
+model SmtpSettings {
+  id          String   @id @default(cuid())
+  host        String
+  port        Int
+  secure      Boolean  @default(true)
+  username    String
+  password    String   // Encrypted password
+  fromEmail   String
+  fromName    String
+  updatedBy   String?  // User ID who last updated
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("smtp_settings")
+}
