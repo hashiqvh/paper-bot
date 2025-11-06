@@ -1,5 +1,7 @@
+import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { ExpenseCategoriesProvider } from "@/contexts/ExpenseCategoriesContext";
+import { QueryProvider } from "@/providers/QueryProvider";
 import type { Metadata } from "next";
 import "./globals.css";
 
@@ -16,11 +18,14 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        <AuthProvider>
-          <ExpenseCategoriesProvider>
-            {children}
-          </ExpenseCategoriesProvider>
-        </AuthProvider>
+        <QueryProvider>
+          <AuthProvider>
+            <ExpenseCategoriesProvider>
+              {children}
+              <Toaster />
+            </ExpenseCategoriesProvider>
+          </AuthProvider>
+        </QueryProvider>
       </body>
     </html>
   );

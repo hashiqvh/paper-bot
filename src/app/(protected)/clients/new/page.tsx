@@ -2,47 +2,59 @@
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Combobox } from '@/components/ui/combobox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { useCreateClient } from '@/hooks/useClients';
+import { clientSchema } from '@/lib/validations/clients';
+import { zodResolver } from '@hookform/resolvers/zod';
 import { ArrowLeft, Save } from 'lucide-react';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useMemo } from 'react';
+import { useForm } from 'react-hook-form';
 import { toast } from 'sonner';
+import countries from 'world-countries';
 
 export default function NewClient() {
   const router = useRouter();
-  const [formData, setFormData] = useState({
-    name: '',
-    email: '',
-    phone: '',
-    country: '',
-    status: 'Lead',
-    kycStatus: 'Pending',
-    company: '',
-    notes: '',
+  const createClientMutation = useCreateClient();
+
+  // Get sorted list of countries
+  const countryOptions = useMemo(() => {
+    return countries
+      .map((country) => ({
+        value: country.name.common,
+        label: country.name.common,
+        flag: country.flag,
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }, []);
+
+  const form = useForm({
+    resolver: zodResolver(clientSchema),
+    defaultValues: {
+      name: '',
+      email: '',
+      phone: '',
+      country: '',
+      status: 'LEAD' as const,
+      kycStatus: 'PENDING' as const,
+      accountType: 'Client',
+      notes: '',
+    },
   });
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    // Validation
-    if (!formData.name || !formData.email || !formData.phone) {
-      toast.error('Please fill in all required fields');
-      return;
+  const handleSubmit = form.handleSubmit(async (data) => {
+    try {
+      await createClientMutation.mutateAsync(data);
+      toast.success('Client added successfully!');
+      router.push('/clients');
+    } catch (error: any) {
+      toast.error(error.message || 'Failed to create client');
     }
-
-    // Here you would normally save to backend/database
-    console.log('New client data:', formData);
-    
-    toast.success('Client added successfully!');
-    router.push('/clients');
-  };
-
-  const handleChange = (field: string, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-  };
+  });
 
   return (
     <div className="space-y-6">
@@ -81,10 +93,13 @@ export default function NewClient() {
                   <Input
                     id="name"
                     placeholder="John Doe"
-                    value={formData.name}
-                    onChange={(e) => handleChange('name', e.target.value)}
-                    required
+                    {...form.register('name')}
                   />
+                  {form.formState.errors.name && (
+                    <p className="text-red-500 text-sm">
+                      {form.formState.errors.name.message}
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="email">
@@ -94,10 +109,13 @@ export default function NewClient() {
                     id="email"
                     type="email"
                     placeholder="john@example.com"
-                    value={formData.email}
-                    onChange={(e) => handleChange('email', e.target.value)}
-                    required
+                    {...form.register('email')}
                   />
+                  {form.formState.errors.email && (
+                    <p className="text-red-500 text-sm">
+                      {form.formState.errors.email.message}
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -111,31 +129,30 @@ export default function NewClient() {
                     id="phone"
                     type="tel"
                     placeholder="+1 234 567 8900"
-                    value={formData.phone}
-                    onChange={(e) => handleChange('phone', e.target.value)}
-                    required
+                    {...form.register('phone')}
                   />
+                  {form.formState.errors.phone && (
+                    <p className="text-red-500 text-sm">
+                      {form.formState.errors.phone.message}
+                    </p>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="country">Country</Label>
-                  <Input
-                    id="country"
-                    placeholder="United States"
-                    value={formData.country}
-                    onChange={(e) => handleChange('country', e.target.value)}
+                  <Combobox
+                    options={countryOptions}
+                    value={form.watch('country')}
+                    onValueChange={(value) => form.setValue('country', value)}
+                    placeholder="Select a country"
+                    searchPlaceholder="Search countries..."
+                    emptyText="No country found."
                   />
+                  {form.formState.errors.country && (
+                    <p className="text-red-500 text-sm">
+                      {form.formState.errors.country.message}
+                    </p>
+                  )}
                 </div>
-              </div>
-
-              {/* Company */}
-              <div className="space-y-2">
-                <Label htmlFor="company">Company Name</Label>
-                <Input
-                  id="company"
-                  placeholder="Company Inc."
-                  value={formData.company}
-                  onChange={(e) => handleChange('company', e.target.value)}
-                />
               </div>
 
               {/* Notes */}
@@ -145,9 +162,13 @@ export default function NewClient() {
                   id="notes"
                   placeholder="Additional notes about the client..."
                   rows={4}
-                  value={formData.notes}
-                  onChange={(e) => handleChange('notes', e.target.value)}
+                  {...form.register('notes')}
                 />
+                {form.formState.errors.notes && (
+                  <p className="text-red-500 text-sm">
+                    {form.formState.errors.notes.message}
+                  </p>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -164,37 +185,51 @@ export default function NewClient() {
                 <div className="space-y-2">
                   <Label htmlFor="status">Client Status</Label>
                   <Select
-                    value={formData.status}
-                    onValueChange={(value: string) => handleChange('status', value)}
+                    value={form.watch('status')}
+                    onValueChange={(value: 'LEAD' | 'VERIFIED' | 'ACTIVE' | 'SUSPENDED') =>
+                      form.setValue('status', value)
+                    }
                   >
                     <SelectTrigger id="status">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="Lead">Lead</SelectItem>
-                      <SelectItem value="Verified">Verified</SelectItem>
-                      <SelectItem value="Active">Active</SelectItem>
-                      <SelectItem value="Suspended">Suspended</SelectItem>
+                      <SelectItem value="LEAD">Lead</SelectItem>
+                      <SelectItem value="VERIFIED">Verified</SelectItem>
+                      <SelectItem value="ACTIVE">Active</SelectItem>
+                      <SelectItem value="SUSPENDED">Suspended</SelectItem>
                     </SelectContent>
                   </Select>
+                  {form.formState.errors.status && (
+                    <p className="text-red-500 text-sm">
+                      {form.formState.errors.status.message}
+                    </p>
+                  )}
                 </div>
 
                 {/* KYC Status */}
                 <div className="space-y-2">
                   <Label htmlFor="kycStatus">KYC Status</Label>
                   <Select
-                    value={formData.kycStatus}
-                    onValueChange={(value: string) => handleChange('kycStatus', value)}
+                    value={form.watch('kycStatus')}
+                    onValueChange={(value: 'PENDING' | 'APPROVED' | 'REJECTED') =>
+                      form.setValue('kycStatus', value)
+                    }
                   >
                     <SelectTrigger id="kycStatus">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="Pending">Pending</SelectItem>
-                      <SelectItem value="Approved">Approved</SelectItem>
-                      <SelectItem value="Rejected">Rejected</SelectItem>
+                      <SelectItem value="PENDING">Pending</SelectItem>
+                      <SelectItem value="APPROVED">Approved</SelectItem>
+                      <SelectItem value="REJECTED">Rejected</SelectItem>
                     </SelectContent>
                   </Select>
+                  {form.formState.errors.kycStatus && (
+                    <p className="text-red-500 text-sm">
+                      {form.formState.errors.kycStatus.message}
+                    </p>
+                  )}
                 </div>
               </CardContent>
             </Card>
@@ -202,15 +237,19 @@ export default function NewClient() {
             {/* Action Buttons */}
             <Card>
               <CardContent className="pt-6 space-y-3">
-                <Button type="submit" className="w-full gap-2">
+                <Button
+                  type="submit"
+                  className="w-full gap-2"
+                  disabled={createClientMutation.isPending}
+                >
                   <Save className="w-4 h-4" />
-                  Save Client
+                  {createClientMutation.isPending ? 'Saving...' : 'Save Client'}
                 </Button>
                 <Button
                   type="button"
                   variant="outline"
                   className="w-full"
-                  onClick={(e: React.MouseEvent<HTMLButtonElement>) => router.push('/clients')}
+                  onClick={() => router.push('/clients')}
                 >
                   Cancel
                 </Button>

@@ -12,7 +12,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { mockAgreements, mockClients } from "@/lib/mockData";
+import { useClients } from "@/hooks/useClients";
+import { useCreateInvoice } from "@/hooks/useInvoices";
+import { useSystemSettings } from "@/hooks/useSettings";
 import { ArrowLeft, Eye, Plus, Save, Send, Trash2 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -28,58 +30,75 @@ export default function NewInvoice() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const agreementId = searchParams.get("agreementId") as string | null;
+  const { data: clientsData } = useClients();
+  const { data: systemSettingsData } = useSystemSettings();
+  const createInvoiceMutation = useCreateInvoice();
 
-  // Check if returning from preview with saved data (using sessionStorage)
-  const savedFormData = typeof window !== 'undefined' 
-    ? JSON.parse(sessionStorage.getItem('invoiceFormData') || 'null')
-    : null;
-  const savedLineItems = typeof window !== 'undefined'
-    ? JSON.parse(sessionStorage.getItem('invoiceLineItems') || 'null')
-    : null;
+  const clients = clientsData?.clients || [];
+  const systemSettings = systemSettingsData?.settings;
+  const taxEnabled = systemSettings?.taxEnabled ?? false;
+  const defaultTaxRate = systemSettings?.vatRate ?? 20;
 
-  // Pre-fill if coming from an agreement
-  const linkedAgreement = agreementId
-    ? mockAgreements.find((a) => a.id === agreementId)
-    : undefined;
+  // Default form data
+  const defaultFormData = {
+    clientId: "",
+    taxRate: taxEnabled ? defaultTaxRate.toString() : "0",
+    dueDate: "",
+    issueDate: new Date().toISOString().split("T")[0],
+    notes: "",
+    paymentTerms: "Payment due within 30 days of invoice date.",
+  };
 
-  const [formData, setFormData] = useState(
-    savedFormData || {
-      clientId: linkedAgreement?.clientId || "",
-      taxRate: "20",
-      dueDate: "",
-      issueDate: new Date().toISOString().split("T")[0],
-      status: "Unpaid" as const,
-      notes: "",
-      paymentTerms: "Payment due within 30 days of invoice date.",
-    }
-  );
+  const [formData, setFormData] = useState(defaultFormData);
+  const [lineItems, setLineItems] = useState<LineItem[]>([
+    {
+      id: "1",
+      description: "",
+      amount: "",
+    },
+  ]);
+  const [isDataLoaded, setIsDataLoaded] = useState(false);
 
-  const [lineItems, setLineItems] = useState<LineItem[]>(
-    savedLineItems ||
-      (linkedAgreement
-        ? [
-            {
-              id: "1",
-              description: linkedAgreement.service,
-              amount: linkedAgreement.fee.toString(),
-            },
-          ]
-        : [
-            {
-              id: "1",
-              description: "",
-              amount: "",
-            },
-          ])
-  );
-
-  // Clear sessionStorage after restoring to prevent issues with browser back button
+  // Restore form data from sessionStorage when component mounts (if coming back from preview)
   useEffect(() => {
-    if (savedFormData || savedLineItems) {
-      sessionStorage.removeItem('invoiceFormData');
-      sessionStorage.removeItem('invoiceLineItems');
+    if (typeof window !== 'undefined' && !isDataLoaded) {
+      const savedFormData = sessionStorage.getItem('invoiceFormData');
+      const savedLineItems = sessionStorage.getItem('invoiceLineItems');
+      
+      if (savedFormData) {
+        try {
+          const parsed = JSON.parse(savedFormData);
+          setFormData(parsed);
+        } catch (error) {
+          console.error('Error parsing saved form data:', error);
+        }
+      }
+      
+      if (savedLineItems) {
+        try {
+          const parsed = JSON.parse(savedLineItems);
+          setLineItems(parsed);
+        } catch (error) {
+          console.error('Error parsing saved line items:', error);
+        }
+      }
+      
+      setIsDataLoaded(true);
     }
-  }, [savedFormData, savedLineItems]);
+  }, [isDataLoaded]);
+
+  // Update tax rate when system settings change
+  useEffect(() => {
+    if (systemSettings && !isDataLoaded) {
+      const enabled = systemSettings.taxEnabled ?? false;
+      const rate = systemSettings.vatRate ?? 20;
+      
+      setFormData((prev) => ({
+        ...prev,
+        taxRate: enabled ? rate.toString() : "0",
+      }));
+    }
+  }, [systemSettings, isDataLoaded]);
 
   const calculateSubtotal = (): number => {
     return lineItems.reduce(
@@ -89,6 +108,9 @@ export default function NewInvoice() {
   };
 
   const calculateTax = (): number => {
+    if (!taxEnabled) {
+      return 0;
+    }
     const subtotal = calculateSubtotal();
     const taxRate = parseFloat(formData.taxRate) || 0;
     return (subtotal * taxRate) / 100;
@@ -104,7 +126,14 @@ export default function NewInvoice() {
       description: "",
       amount: "",
     };
-    setLineItems([...lineItems, newItem]);
+    setLineItems((prev) => {
+      const updated = [...prev, newItem];
+      // Save to sessionStorage for preview
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem('invoiceLineItems', JSON.stringify(updated));
+      }
+      return updated;
+    });
   };
 
   const handleRemoveLineItem = (id: string) => {
@@ -112,31 +141,30 @@ export default function NewInvoice() {
       toast.error("Invoice must have at least one line item");
       return;
     }
-    setLineItems(lineItems.filter((item) => item.id !== id));
+    setLineItems((prev) => {
+      const updated = prev.filter((item) => item.id !== id);
+      // Save to sessionStorage for preview
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem('invoiceLineItems', JSON.stringify(updated));
+      }
+      return updated;
+    });
   };
 
-  const handleLineItemChange = (
-    id: string,
-    field: keyof LineItem,
-    value: string
-  ) => {
-    setLineItems(
-      lineItems.map((item) => {
-        if (item.id === id) {
-          return { ...item, [field]: value };
-        }
-        return item;
-      })
-    );
-  };
+  // Validation function
+  const validateForm = (): { isValid: boolean; errors: string[] } => {
+    const errors: string[] = [];
 
-  const handleSubmit = (e: React.FormEvent, sendImmediately = false) => {
-    e.preventDefault();
+    if (!formData.clientId) {
+      errors.push("Client is required");
+    }
 
-    // Validation
-    if (!formData.clientId || !formData.dueDate) {
-      toast.error("Please fill in all required fields");
-      return;
+    if (!formData.dueDate) {
+      errors.push("Due date is required");
+    }
+
+    if (!formData.issueDate) {
+      errors.push("Issue date is required");
     }
 
     // Validate line items
@@ -144,93 +172,135 @@ export default function NewInvoice() {
       (item) => !item.description || !item.amount
     );
     if (hasEmptyItems) {
-      toast.error("Please complete all line items");
+      errors.push("Please complete all line items");
+    }
+
+    // Validate amounts are positive numbers
+    const hasInvalidAmounts = lineItems.some(
+      (item) => item.amount && (isNaN(parseFloat(item.amount)) || parseFloat(item.amount) <= 0)
+    );
+    if (hasInvalidAmounts) {
+      errors.push("All line item amounts must be positive numbers");
+    }
+
+    return {
+      isValid: errors.length === 0,
+      errors,
+    };
+  };
+
+  const validation = validateForm();
+  const isFormValid = validation.isValid;
+
+  const handleSubmit = async (e: React.FormEvent, sendImmediately = false) => {
+    e.preventDefault();
+
+    const validationResult = validateForm();
+    if (!validationResult.isValid) {
+      toast.error(validationResult.errors[0] || "Please fill in all required fields");
       return;
     }
 
-    const selectedClient = mockClients.find((c) => c.id === formData.clientId);
+    try {
+      await createInvoiceMutation.mutateAsync({
+        clientId: formData.clientId,
+        taxRate: taxEnabled ? (parseFloat(formData.taxRate) || defaultTaxRate) : 0,
+        dueDate: formData.dueDate,
+        issueDate: formData.issueDate,
+        status: sendImmediately ? "UNPAID" : "UNPAID",
+        notes: formData.notes || undefined,
+        paymentTerms: formData.paymentTerms || undefined,
+        lineItems: lineItems.map((item) => ({
+          description: item.description,
+          amount: parseFloat(item.amount),
+        })),
+      });
 
-    // Here you would normally save to backend/database
-    const invoiceData = {
-      id: "inv" + Math.random().toString(36).substr(2, 9),
-      clientId: formData.clientId,
-      clientName: selectedClient?.name || "",
-      lineItems: lineItems.map((item) => ({
-        description: item.description,
-        amount: parseFloat(item.amount),
-      })),
-      subtotal: calculateSubtotal(),
-      taxRate: parseFloat(formData.taxRate),
-      tax: calculateTax(),
-      total: calculateTotal(),
-      status: formData.status,
-      dueDate: formData.dueDate,
-      issueDate: formData.issueDate,
-      notes: formData.notes,
-      paymentTerms: formData.paymentTerms,
-    };
+      // Clear sessionStorage after successful submission
+      if (typeof window !== 'undefined') {
+        sessionStorage.removeItem('invoiceFormData');
+        sessionStorage.removeItem('invoiceLineItems');
+      }
 
-    console.log("New invoice data:", invoiceData);
-
-    toast.success(
-      sendImmediately
-        ? "Invoice sent successfully!"
-        : "Invoice saved successfully!"
-    );
-    router.push("/invoices");
+      toast.success(
+        sendImmediately
+          ? "Invoice sent successfully!"
+          : "Invoice saved successfully!"
+      );
+      router.push("/invoices");
+    } catch (error: any) {
+      toast.error(error.message || "Failed to create invoice");
+    }
   };
 
   const handlePreview = () => {
-    if (!formData.clientId) {
-      toast.error("Please select a client before previewing");
+    const validationResult = validateForm();
+    if (!validationResult.isValid) {
+      toast.error(validationResult.errors[0] || "Please fill in all required fields");
       return;
     }
 
-    const hasEmptyItems = lineItems.some(
-      (item) => !item.description || !item.amount
-    );
-    if (hasEmptyItems) {
-      toast.error("Please complete all line items before previewing");
-      return;
+    // Save to sessionStorage for preview
+    if (typeof window !== 'undefined') {
+      const selectedClient = clients.find((c) => c.id === formData.clientId);
+      
+      const previewInvoice = {
+        id: "PREVIEW",
+        clientId: formData.clientId,
+        clientName: selectedClient?.name || "",
+        lineItems: lineItems.map((item) => ({
+          description: item.description,
+          amount: parseFloat(item.amount) || 0,
+        })),
+        subtotal: calculateSubtotal(),
+        taxRate: taxEnabled ? (parseFloat(formData.taxRate) || defaultTaxRate) : 0,
+        tax: calculateTax(),
+        total: calculateTotal(),
+        status: "UNPAID",
+        dueDate: formData.dueDate,
+        issueDate: formData.issueDate,
+      };
+
+      sessionStorage.setItem('previewInvoice', JSON.stringify(previewInvoice));
+      sessionStorage.setItem('invoiceFormData', JSON.stringify(formData));
+      sessionStorage.setItem('invoiceLineItems', JSON.stringify(lineItems));
     }
-
-    const selectedClient = mockClients.find((c) => c.id === formData.clientId);
-
-    const previewInvoice = {
-      id: "PREVIEW",
-      clientId: formData.clientId,
-      clientName: selectedClient?.name || "",
-      lineItems: lineItems.map((item) => ({
-        description: item.description,
-        amount: parseFloat(item.amount) || 0,
-      })),
-      subtotal: calculateSubtotal(),
-      taxRate: parseFloat(formData.taxRate),
-      tax: calculateTax(),
-      total: calculateTotal(),
-      status: formData.status,
-      dueDate: formData.dueDate || new Date().toISOString().split("T")[0],
-      issueDate: formData.issueDate,
-    };
-
-    const returnPath = agreementId
-      ? `/invoices/new?agreementId=${agreementId}`
-      : "/invoices/new";
-
-    // Store data in sessionStorage for preview page
-    sessionStorage.setItem('previewInvoice', JSON.stringify(previewInvoice));
-    sessionStorage.setItem('invoiceFormData', JSON.stringify(formData));
-    sessionStorage.setItem('invoiceLineItems', JSON.stringify(lineItems));
-    sessionStorage.setItem('invoiceReturnTo', returnPath);
     
     router.push("/invoices/preview");
   };
 
   const handleChange = (field: string, value: string) => {
-    setFormData((prev: any) => ({ ...prev, [field]: value }));
+    setFormData((prev: any) => {
+      const updated = { ...prev, [field]: value };
+      // Save to sessionStorage for preview
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem('invoiceFormData', JSON.stringify(updated));
+      }
+      return updated;
+    });
   };
 
-  const selectedClient = mockClients.find((c) => c.id === formData.clientId);
+  const handleLineItemChange = (
+    id: string,
+    field: keyof LineItem,
+    value: string
+  ) => {
+    setLineItems((prev) => {
+      const updated = prev.map((item) => {
+        if (item.id === id) {
+          return { ...item, [field]: value };
+        }
+        return item;
+      });
+      // Save to sessionStorage for preview
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem('invoiceLineItems', JSON.stringify(updated));
+      }
+      return updated;
+    });
+  };
+
+  const selectedClient = clients.find((c) => c.id === formData.clientId);
   const subtotal = calculateSubtotal();
   const tax = calculateTax();
   const total = calculateTotal();
@@ -255,7 +325,12 @@ export default function NewInvoice() {
           </div>
         </div>
         <div className="flex gap-3">
-          <Button variant="outline" onClick={handlePreview} className="gap-2">
+          <Button 
+            variant="outline" 
+            onClick={handlePreview} 
+            className="gap-2"
+            disabled={!isFormValid}
+          >
             <Eye className="w-4 h-4" />
             Preview
           </Button>
@@ -265,18 +340,20 @@ export default function NewInvoice() {
               handleSubmit(e, false)
             }
             className="gap-2"
+            disabled={createInvoiceMutation.isPending || !isFormValid}
           >
             <Save className="w-4 h-4" />
-            Save
+            {createInvoiceMutation.isPending ? "Saving..." : "Save"}
           </Button>
           <Button
             onClick={(e: React.MouseEvent<HTMLButtonElement>) =>
               handleSubmit(e, true)
             }
             className="gap-2"
+            disabled={createInvoiceMutation.isPending || !isFormValid}
           >
             <Send className="w-4 h-4" />
-            Save & Send
+            {createInvoiceMutation.isPending ? "Sending..." : "Save & Send"}
           </Button>
         </div>
       </div>
@@ -304,9 +381,9 @@ export default function NewInvoice() {
                       <SelectValue placeholder="Select client" />
                     </SelectTrigger>
                     <SelectContent>
-                      {mockClients.map((client) => (
+                      {clients.map((client) => (
                         <SelectItem key={client.id} value={client.id}>
-                          {client.name}
+                          {client.name} - {client.email}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -320,9 +397,8 @@ export default function NewInvoice() {
                       id="issueDate"
                       type="date"
                       value={formData.issueDate}
-                      onChange={(e) =>
-                        handleChange("issueDate", e.target.value)
-                      }
+                      onChange={(e) => handleChange("issueDate", e.target.value)}
+                      required
                     />
                   </div>
 
@@ -333,6 +409,7 @@ export default function NewInvoice() {
                       type="date"
                       value={formData.dueDate}
                       onChange={(e) => handleChange("dueDate", e.target.value)}
+                      required
                     />
                   </div>
                 </div>
@@ -428,29 +505,33 @@ export default function NewInvoice() {
                 <CardTitle>Tax & Total</CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="taxRate">Tax Rate (%)</Label>
-                  <Input
-                    id="taxRate"
-                    type="number"
-                    step="0.01"
-                    value={formData.taxRate}
-                    onChange={(e) => handleChange("taxRate", e.target.value)}
-                    placeholder="20"
-                  />
-                </div>
+                {taxEnabled && (
+                  <div className="space-y-2">
+                    <Label htmlFor="taxRate">Tax Rate (%)</Label>
+                    <Input
+                      id="taxRate"
+                      type="number"
+                      step="0.01"
+                      value={formData.taxRate}
+                      onChange={(e) => handleChange("taxRate", e.target.value)}
+                      placeholder={defaultTaxRate.toString()}
+                    />
+                  </div>
+                )}
 
                 <div className="pt-4 border-t space-y-2">
                   <div className="flex justify-between">
                     <span className="text-slate-600">Subtotal:</span>
                     <span>${subtotal.toFixed(2)}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-600">
-                      Tax ({formData.taxRate}%):
-                    </span>
-                    <span>${tax.toFixed(2)}</span>
-                  </div>
+                  {taxEnabled && (
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">
+                        Tax ({formData.taxRate}%):
+                      </span>
+                      <span>${tax.toFixed(2)}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between pt-2 border-t">
                     <span>Total:</span>
                     <span>${total.toFixed(2)}</span>
@@ -536,12 +617,14 @@ export default function NewInvoice() {
                     <span className="text-slate-600">Subtotal:</span>
                     <span>${subtotal.toFixed(2)}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-600">
-                      Tax ({formData.taxRate}%):
-                    </span>
-                    <span>${tax.toFixed(2)}</span>
-                  </div>
+                  {taxEnabled && (
+                    <div className="flex justify-between">
+                      <span className="text-slate-600">
+                        Tax ({formData.taxRate}%):
+                      </span>
+                      <span>${tax.toFixed(2)}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between pt-2 border-t">
                     <span>Total:</span>
                     <span>${total.toFixed(2)}</span>
@@ -563,29 +646,6 @@ export default function NewInvoice() {
               </CardContent>
             </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle>Status</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <Select
-                  value={formData.status}
-                  onValueChange={(value: string) =>
-                    handleChange("status", value)
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Unpaid">Unpaid</SelectItem>
-                    <SelectItem value="Paid">Paid</SelectItem>
-                    <SelectItem value="Overdue">Overdue</SelectItem>
-                    <SelectItem value="Upcoming">Upcoming</SelectItem>
-                  </SelectContent>
-                </Select>
-              </CardContent>
-            </Card>
           </div>
         </div>
       </form>

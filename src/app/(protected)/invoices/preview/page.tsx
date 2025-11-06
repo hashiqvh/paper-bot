@@ -1,17 +1,38 @@
 "use client";
 
 import { Button } from '@/components/ui/button';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from '@/components/ui/dialog';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import { useWallets } from '@/hooks/useSettings';
 import { Invoice, mockClients } from '@/lib/mockData';
-import { ArrowLeft, Download, Printer, Send } from 'lucide-react';
+import { ArrowLeft, Download, FileText, Printer, Send } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
+import { toast } from 'sonner';
 
 export default function InvoicePreview() {
   const router = useRouter();
+  const { data: walletsData } = useWallets();
   const [invoice, setInvoice] = useState<Invoice | null>(null);
   const [returnTo, setReturnTo] = useState<string | null>(null);
   const [formData, setFormData] = useState<any>(null);
   const [lineItems, setLineItems] = useState<any[] | null>(null);
+  const [sendDialogOpen, setSendDialogOpen] = useState(false);
+  const [emailContent, setEmailContent] = useState('');
+  const [isSending, setIsSending] = useState(false);
+  
+  // Get the primary wallet address
+  const wallets = walletsData?.wallets || [];
+  const primaryWallet = wallets.find((w: any) => w.isPrimary);
+  const walletAddress = primaryWallet?.address || 'TPgazse1uRb4DAAqS6Dg4SF62BMyUae97Y';
 
   useEffect(() => {
     // Get data from sessionStorage
@@ -65,21 +86,58 @@ export default function InvoicePreview() {
   };
 
   const handleSend = () => {
-    alert(`Invoice ${invoice.id.toUpperCase()} will be sent to the client`);
+    if (!invoice) return;
+    
+    // Set default email content
+    const defaultContent = `Dear ${client?.name || invoice?.clientName || 'Client'},
+
+Please find attached invoice ${invoice.id.toUpperCase()} for your review.
+
+Invoice Details:
+- Invoice ID: ${invoice.id.toUpperCase()}
+- Issue Date: ${invoice?.issueDate ? formatDate(invoice.issueDate) : 'N/A'}
+- Due Date: ${invoice?.dueDate ? formatDate(invoice.dueDate) : 'N/A'}
+- Total Amount: $${invoiceTotal.toLocaleString()}
+
+Please make payment by the due date. If you have any questions, please don't hesitate to contact us.
+
+Best regards,
+Paperbot Fintech Solutions`;
+
+    setEmailContent(defaultContent);
+    setSendDialogOpen(true);
+  };
+
+  const handleSendEmail = async () => {
+    if (!invoice || !emailContent.trim()) {
+      toast.error("Please enter email content");
+      return;
+    }
+
+    if (!client?.email) {
+      toast.error("Client email not found");
+      return;
+    }
+
+    // For preview invoices, we can't send them yet (they're not saved)
+    // Show a message that they need to save the invoice first
+    toast.error("Please save the invoice first before sending");
+    setSendDialogOpen(false);
   };
 
   const handleBack = () => {
-    if (returnTo) {
-      // If returning to create invoice, restore the form data
-      if (formData) {
-        sessionStorage.setItem('invoiceFormData', JSON.stringify(formData));
-      }
-      if (lineItems) {
-        sessionStorage.setItem('invoiceLineItems', JSON.stringify(lineItems));
-      }
-      router.push(returnTo);
+    // Always save form data if available (coming from new invoice page)
+    if (formData) {
+      sessionStorage.setItem('invoiceFormData', JSON.stringify(formData));
+    }
+    if (lineItems) {
+      sessionStorage.setItem('invoiceLineItems', JSON.stringify(lineItems));
+    }
+    
+    // If we have form data, go back to new invoice page, otherwise go to invoices list
+    if (formData || lineItems || returnTo) {
+      router.push('/invoices/new');
     } else {
-      // Otherwise go to invoices list
       router.push('/invoices');
     }
   };
@@ -263,7 +321,7 @@ export default function InvoicePreview() {
               <div className="text-right">
                 <p className="text-[#18120f] text-sm font-medium mb-2">Paperbot Fintech Solutions</p>
                 <p className="text-[#18120f] text-xs mb-3">
-                  Wallet ID : {formData?.walletAddress || 'TPgazse1uRb4DAAqS6Dg4SF62BMyUae97Y'}
+                  Wallet ID : {walletAddress}
                 </p>
                 <img 
                   src="/qr.svg" 
@@ -381,6 +439,75 @@ export default function InvoicePreview() {
           }
         }
       `}</style>
+
+      {/* Send Invoice Dialog */}
+      <Dialog open={sendDialogOpen} onOpenChange={setSendDialogOpen}>
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Send Invoice</DialogTitle>
+            <DialogDescription>
+              Review the email content and invoice PDF before sending to {client?.email || invoice?.clientName || 'client'}
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4">
+            {/* Email Content Editor */}
+            <div className="space-y-2">
+              <Label htmlFor="emailContent">Email Content</Label>
+              <Textarea
+                id="emailContent"
+                value={emailContent}
+                onChange={(e) => setEmailContent(e.target.value)}
+                rows={10}
+                placeholder="Enter email content..."
+                className="resize-none"
+              />
+            </div>
+
+            {/* Invoice PDF Preview */}
+            <div className="space-y-2">
+              <Label>Invoice PDF Preview</Label>
+              <div className="border rounded-lg overflow-hidden bg-slate-50">
+                <div className="p-4 border-b bg-white">
+                  <div className="flex items-center gap-2">
+                    <FileText className="w-5 h-5 text-slate-600" />
+                    <span className="text-sm font-medium">
+                      Invoice-{invoice?.id?.toUpperCase() || 'PREVIEW'}.pdf
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1">
+                    This PDF will be attached to the email
+                  </p>
+                </div>
+                <div className="h-[400px] overflow-auto bg-white">
+                  <div className="p-4 text-center text-slate-500">
+                    <p className="text-sm">Invoice preview will be shown here</p>
+                    <p className="text-xs mt-2">Save the invoice first to send it</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setSendDialogOpen(false)}
+              disabled={isSending}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSendEmail}
+              disabled={isSending || !emailContent.trim()}
+              className="gap-2"
+            >
+              <Send className="w-4 h-4" />
+              {isSending ? "Sending..." : "Send Invoice"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

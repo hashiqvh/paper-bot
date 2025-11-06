@@ -36,7 +36,7 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
     ];
 
     switch (user?.role) {
-      case 'admin':
+      case 'ADMIN':
         return [
           { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard' },
           { icon: Users, label: 'Clients', path: '/clients' },
@@ -48,7 +48,7 @@ export function Sidebar({ isOpen = false, onClose }: SidebarProps) {
           { icon: Bell, label: 'Notifications', path: '/notifications' },
           { icon: Settings, label: 'Settings', path: '/settings' },
         ];
-      case 'client':
+      case 'CLIENT':
         return [
           { icon: LayoutDashboard, label: 'Dashboard', path: '/dashboard' },
           { icon: Receipt, label: 'Invoices', path: '/invoices' },

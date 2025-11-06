@@ -31,13 +31,13 @@ export default function Agreements() {
   const [searchTerm, setSearchTerm] = useState('');
 
   // Find the client record for logged-in client users
-  const currentClient = user?.role === 'client' 
+  const currentClient = user?.role === 'CLIENT'     
     ? mockClients.find(c => c.email === user.email)
     : null;
 
   // Filter agreements based on user role
   // Clients only see their own agreements that are Signed or Active
-  const allAgreements = user?.role === 'client' && currentClient
+  const allAgreements = user?.role === 'CLIENT' && currentClient
     ? mockAgreements.filter(agreement => 
         agreement.clientId === currentClient.id && 
         (agreement.status === 'Signed' || agreement.status === 'Active' || agreement.status === 'Sent')
@@ -70,8 +70,8 @@ export default function Agreements() {
   };
 
   // Determine page title and description based on user role
-  const pageTitle = user?.role === 'client' ? 'My Agreements' : 'Service Agreements';
-  const pageDescription = user?.role === 'client' 
+  const pageTitle = user?.role === 'CLIENT' ? 'My Agreements' : 'Service Agreements';
+  const pageDescription = user?.role === 'CLIENT' 
     ? 'View your service contracts and agreements'
     : 'Manage service contracts and agreements';
 
@@ -83,7 +83,7 @@ export default function Agreements() {
           <h1>{pageTitle}</h1>
           <p className="text-slate-600">{pageDescription}</p>
         </div>
-        {user?.role !== 'client' && (
+        {user?.role !== 'CLIENT' && (
           <Button className="gap-2 w-full sm:w-auto" onClick={() => router.push('/agreements/new')}>
             <Plus className="w-4 h-4" />
             <span className="hidden sm:inline">New Agreement</span>
@@ -93,7 +93,7 @@ export default function Agreements() {
       </div>
 
       {/* Stats Cards */}
-      {user?.role === 'client' ? (
+      {user?.role === 'CLIENT' ? (
         <div className="grid gap-4 md:grid-cols-3">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -191,10 +191,10 @@ export default function Agreements() {
             <TableHeader>
               <TableRow>
                 <TableHead>Agreement ID</TableHead>
-                {user?.role !== 'client' && <TableHead>Client</TableHead>}
+                {user?.role !== 'CLIENT' && <TableHead>Client</TableHead>}
                 <TableHead>Service</TableHead>
                 <TableHead>Fee</TableHead>
-                <TableHead>{user?.role === 'client' ? 'Date' : 'Created Date'}</TableHead>
+                <TableHead>{user?.role === 'CLIENT' ? 'Date' : 'Created Date'}</TableHead>
                 <TableHead>Signed Date</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead></TableHead>
@@ -203,7 +203,7 @@ export default function Agreements() {
             <TableBody>
               {filteredAgreements.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={user?.role === 'client' ? 7 : 8} className="text-center text-slate-500">
+                  <TableCell colSpan={user?.role === 'CLIENT' ? 7 : 8} className="text-center text-slate-500">
                     No agreements found
                   </TableCell>
                 </TableRow>
@@ -211,7 +211,7 @@ export default function Agreements() {
                 filteredAgreements.map((agreement) => (
                   <TableRow key={agreement.id}>
                     <TableCell className="text-sm">{agreement.id}</TableCell>
-                    {user?.role !== 'client' && (
+                    {user?.role !== 'CLIENT' && (
                       <TableCell className="text-sm">{agreement.clientName}</TableCell>
                     )}
                     <TableCell className="text-sm">{agreement.service}</TableCell>
@@ -226,7 +226,7 @@ export default function Agreements() {
                     </TableCell>
                     <TableCell>{getStatusBadge(agreement.status)}</TableCell>
                     <TableCell>
-                      {user?.role === 'client' ? (
+                        {user?.role === 'CLIENT' ? (
                         <div className="flex gap-2">
                           <Button variant="ghost" size="sm">
                             <Eye className="w-4 h-4" />

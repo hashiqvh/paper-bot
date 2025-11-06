@@ -19,51 +19,40 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { useAuth } from '@/contexts/AuthContext';
-import { mockClients, mockInvoices } from '@/lib/mockData';
+import { useInvoices } from '@/hooks/useInvoices';
 import { Download, Eye, Plus, Search } from 'lucide-react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 export default function Invoices() {
   const router = useRouter();
-  const { user } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
 
-  // Find the client record for logged-in client users
-  const currentClient = user?.role === 'client' 
-    ? mockClients.find(c => c.email === user.email)
-    : null;
+  // Debounce search term
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchTerm);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchTerm]);
 
-  // Filter invoices based on user role
-  const allInvoices = user?.role === 'client' && currentClient
-    ? mockInvoices.filter(invoice => invoice.clientId === currentClient.id)
-    : mockInvoices;
-
-  const filteredInvoices = allInvoices.filter(invoice => {
-    const searchLower = searchTerm.toLowerCase();
-    const matchesSearch = 
-      invoice.clientName.toLowerCase().includes(searchLower) ||
-      invoice.id.toLowerCase().includes(searchLower) ||
-      (invoice.service && invoice.service.toLowerCase().includes(searchLower)) ||
-      (invoice.lineItems && invoice.lineItems.some(item => 
-        item.description.toLowerCase().includes(searchLower)
-      ));
-    const matchesStatus = statusFilter === 'all' || invoice.status === statusFilter;
-    
-    return matchesSearch && matchesStatus;
+  const { data, isLoading, error } = useInvoices({
+    search: debouncedSearch || undefined,
+    status: statusFilter !== 'all' ? statusFilter : undefined,
   });
 
-  const totalAmount = filteredInvoices.reduce((sum, inv) => sum + inv.total, 0);
-  const paidAmount = filteredInvoices.filter(i => i.status === 'Paid').reduce((sum, inv) => sum + inv.total, 0);
-  const unpaidAmount = filteredInvoices.filter(i => i.status !== 'Paid').reduce((sum, inv) => sum + inv.total, 0);
+  const invoices = data?.invoices || [];
 
-  // Determine page title and description based on user role
-  const pageTitle = user?.role === 'client' ? 'My Invoices' : 'Invoices';
-  const pageDescription = user?.role === 'client' 
-    ? 'View your invoices and payment history'
-    : 'Manage your invoices and payments';
+  const totalAmount = invoices.reduce((sum, inv) => sum + inv.total, 0);
+  const paidAmount = invoices.filter(i => i.status === 'PAID').reduce((sum, inv) => sum + inv.total, 0);
+  const unpaidAmount = invoices.filter(i => i.status !== 'PAID').reduce((sum, inv) => sum + inv.total, 0);
+
+  // Determine page title and description
+  const pageTitle = 'Invoices';
+  const pageDescription = 'Manage your invoices and payments';
 
   return (
     <div className="space-y-6">
@@ -72,13 +61,13 @@ export default function Invoices() {
           <h1>{pageTitle}</h1>
           <p className="text-slate-600 mt-1">{pageDescription}</p>
         </div>
-        {user?.role !== 'client' && (
-          <Button className="gap-2 w-full sm:w-auto" onClick={() => router.push('/invoices/new')}>
+        <Button asChild className="gap-2 w-full sm:w-auto">
+          <Link href="/invoices/new">
             <Plus className="w-4 h-4" />
             <span className="hidden sm:inline">Create Invoice</span>
             <span className="sm:hidden">Create</span>
-          </Button>
-        )}
+          </Link>
+        </Button>
       </div>
 
       {/* Summary Cards */}
@@ -121,91 +110,101 @@ export default function Invoices() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">All Status</SelectItem>
-                <SelectItem value="Paid">Paid</SelectItem>
-                <SelectItem value="Unpaid">Unpaid</SelectItem>
-                <SelectItem value="Overdue">Overdue</SelectItem>
-                <SelectItem value="Upcoming">Upcoming</SelectItem>
+                <SelectItem value="PAID">Paid</SelectItem>
+                <SelectItem value="UNPAID">Unpaid</SelectItem>
+                <SelectItem value="OVERDUE">Overdue</SelectItem>
+                <SelectItem value="UPCOMING">Upcoming</SelectItem>
               </SelectContent>
             </Select>
           </div>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
-            <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Invoice ID</TableHead>
-                {user?.role !== 'client' && <TableHead>Client</TableHead>}
-                <TableHead>Service</TableHead>
-                <TableHead>Issue Date</TableHead>
-                <TableHead>Due Date</TableHead>
-                <TableHead>Amount</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead></TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredInvoices.map((invoice) => (
-                <TableRow key={invoice.id}>
-                  <TableCell className="text-sm">{invoice.id.toUpperCase()}</TableCell>
-                  {user?.role !== 'client' && (
-                    <TableCell className="text-sm">{invoice.clientName}</TableCell>
-                  )}
-                  <TableCell className="text-sm">
-                    {invoice.lineItems ? (
-                      invoice.lineItems.length === 1 ? (
-                        invoice.lineItems[0].description
-                      ) : (
-                        `${invoice.lineItems.length} items`
-                      )
-                    ) : (
-                      invoice.service
-                    )}
-                  </TableCell>
-                  <TableCell className="text-sm">
-                    {new Date(invoice.issueDate).toLocaleDateString()}
-                  </TableCell>
-                  <TableCell className="text-sm">
-                    {new Date(invoice.dueDate).toLocaleDateString()}
-                  </TableCell>
-                  <TableCell className="text-sm">${invoice.total.toLocaleString()}</TableCell>
-                  <TableCell>
-                    <Badge variant={
-                      invoice.status === 'Paid' ? 'default' :
-                      invoice.status === 'Overdue' ? 'destructive' :
-                      invoice.status === 'Upcoming' ? 'outline' :
-                      'secondary'
-                    }>
-                      {invoice.status}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex gap-2">
-                      <Button 
-                        variant="ghost" 
-                        size="sm"
-                        onClick={() => {
-                          sessionStorage.setItem('previewInvoice', JSON.stringify(invoice));
-                          router.push('/invoices/preview');
-                        }}
-                      >
-                        <Eye className="w-4 h-4" />
-                      </Button>
-                      <Button variant="ghost" size="sm">
-                        <Download className="w-4 h-4" />
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-          </div>
-
-          {filteredInvoices.length === 0 && (
+          {isLoading ? (
             <div className="text-center py-12">
-              <p className="text-slate-500">No invoices found</p>
+              <p className="text-slate-500">Loading invoices...</p>
             </div>
+          ) : error ? (
+            <div className="text-center py-12">
+              <p className="text-red-500">Failed to load invoices</p>
+            </div>
+          ) : (
+            <>
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Invoice ID</TableHead>
+                      <TableHead>Client</TableHead>
+                      <TableHead>Service</TableHead>
+                      <TableHead>Issue Date</TableHead>
+                      <TableHead>Due Date</TableHead>
+                      <TableHead>Amount</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead></TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {invoices.map((invoice) => (
+                      <TableRow key={invoice.id}>
+                        <TableCell className="text-sm">{invoice.id.toUpperCase()}</TableCell>
+                        <TableCell className="text-sm">{invoice.clientName}</TableCell>
+                        <TableCell className="text-sm">
+                          {invoice.lineItems && invoice.lineItems.length > 0 ? (
+                            invoice.lineItems.length === 1 ? (
+                              invoice.lineItems[0].description
+                            ) : (
+                              `${invoice.lineItems.length} items`
+                            )
+                          ) : (
+                            '-'
+                          )}
+                        </TableCell>
+                        <TableCell className="text-sm">
+                          {new Date(invoice.issueDate).toLocaleDateString()}
+                        </TableCell>
+                        <TableCell className="text-sm">
+                          {new Date(invoice.dueDate).toLocaleDateString()}
+                        </TableCell>
+                        <TableCell className="text-sm">${invoice.total.toLocaleString()}</TableCell>
+                        <TableCell>
+                          <Badge
+                            variant={
+                              invoice.status === 'PAID'
+                                ? 'default'
+                                : invoice.status === 'OVERDUE'
+                                ? 'destructive'
+                                : invoice.status === 'UPCOMING'
+                                ? 'outline'
+                                : 'secondary'
+                            }
+                          >
+                            {invoice.status}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex gap-2">
+                            <Link href={`/invoices/${invoice.id}/preview`}>
+                              <Button variant="ghost" size="sm">
+                                <Eye className="w-4 h-4" />
+                              </Button>
+                            </Link>
+                            <Button variant="ghost" size="sm">
+                              <Download className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+
+              {invoices.length === 0 && (
+                <div className="text-center py-12">
+                  <p className="text-slate-500">No invoices found</p>
+                </div>
+              )}
+            </>
           )}
         </CardContent>
       </Card>

@@ -1,13 +1,14 @@
 "use client";
 
 import { Button } from '@/components/ui/button';
-import { mockClients } from '@/lib/mockData';
+import { useClients } from '@/hooks/useClients';
 import { ArrowLeft, Download, Send } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
 export default function ProposalPreview() {
   const router = useRouter();
+  const { data: clientsData } = useClients();
   const [formData, setFormData] = useState<any>(null);
 
   useEffect(() => {
@@ -30,10 +31,17 @@ export default function ProposalPreview() {
   }, [router]);
 
   if (!formData) {
-    return null;
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-slate-600 mb-4">Loading preview...</p>
+        </div>
+      </div>
+    );
   }
 
-  const selectedClient = mockClients.find(c => c.id === formData.clientId);
+  const clients = clientsData?.clients || [];
+  const selectedClient = clients.find((c: any) => c.id === formData.clientId);
 
   return (
     <div className="min-h-screen bg-slate-50">

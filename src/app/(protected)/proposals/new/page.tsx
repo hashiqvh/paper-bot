@@ -1,79 +1,222 @@
 "use client";
 
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Textarea } from '@/components/ui/textarea';
-import { mockClients } from '@/lib/mockData';
-import { ArrowLeft, Eye, Save, Send } from 'lucide-react';
-import { useRouter } from 'next/navigation';
-import { useState } from 'react';
-import { toast } from 'sonner';
+} from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
+import { useClients } from "@/hooks/useClients";
+import { useCreateProposal } from "@/hooks/useProposals";
+import { useServices } from "@/hooks/useSettings";
+import { ArrowLeft, Eye, Save, Send } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
 
 export default function NewProposal() {
   const router = useRouter();
-  const [formData, setFormData] = useState({
-    clientId: '',
-    service: '',
-    fee: '',
-    status: 'Draft',
-    validity: '30',
+  const { data: clientsData } = useClients();
+  const { data: servicesData } = useServices();
+  const createProposalMutation = useCreateProposal();
+  
+  // Default form data
+  const defaultFormData = {
+    clientId: "",
+    service: "",
+    fee: "",
+    validity: "30",
+    notes: "",
     content: {
-      introduction: 'Dear [Client Name],\n\nThank you for your interest in our services. We are pleased to present this proposal for your consideration.',
-      serviceDetails: 'This proposal outlines our comprehensive service offering designed to meet your specific needs.',
-      deliverables: '• Service deliverable 1\n• Service deliverable 2\n• Service deliverable 3',
-      timeline: 'Project Duration: [X] weeks/months\n\nPhase 1: Initial setup and onboarding\nPhase 2: Implementation\nPhase 3: Review and optimization',
-      paymentTerms: 'Payment Schedule:\n• Initial deposit: [X]% upon agreement signing\n• Milestone payments: [Details]\n• Final payment: Upon completion',
-      termsAndConditions: '1. This proposal is valid for 30 days from the date of issue.\n2. All fees are quoted in USD.\n3. Services will commence upon receipt of signed agreement and initial payment.\n4. Either party may terminate with 30 days written notice.',
+      introduction:
+        "Dear [Client Name],\n\nThank you for your interest in our services. We are pleased to present this proposal for your consideration.",
+      serviceDetails:
+        "This proposal outlines our comprehensive service offering designed to meet your specific needs.",
+      deliverables:
+        "• Service deliverable 1\n• Service deliverable 2\n• Service deliverable 3",
+      timeline:
+        "Project Duration: [X] weeks/months\n\nPhase 1: Initial setup and onboarding\nPhase 2: Implementation\nPhase 3: Review and optimization",
+      paymentTerms:
+        "Payment Schedule:\n• Initial deposit: [X]% upon agreement signing\n• Milestone payments: [Details]\n• Final payment: Upon completion",
+      termsAndConditions:
+        "1. This proposal is valid for 30 days from the date of issue.\n2. All fees are quoted in USD.\n3. Services will commence upon receipt of signed agreement and initial payment.\n4. Either party may terminate with 30 days written notice.",
     },
-  });
+  };
 
-  const handleSubmit = (e: React.FormEvent, sendImmediately = false) => {
+  const [formData, setFormData] = useState(defaultFormData);
+  const [isDataLoaded, setIsDataLoaded] = useState(false);
+
+  // Restore form data from sessionStorage when component mounts (if coming back from preview)
+  useEffect(() => {
+    if (typeof window !== 'undefined' && !isDataLoaded) {
+      const savedFormData = sessionStorage.getItem('proposalFormData');
+      if (savedFormData) {
+        try {
+          const parsed = JSON.parse(savedFormData);
+          setFormData(parsed);
+          setIsDataLoaded(true);
+        } catch (error) {
+          console.error('Error parsing saved form data:', error);
+        }
+      } else {
+        setIsDataLoaded(true);
+      }
+    }
+  }, [isDataLoaded]);
+
+  const clients = clientsData?.clients || [];
+  const services = servicesData?.services || [];
+  
+  // Debug: Log to understand the data structure
+  if (servicesData && services.length === 0) {
+    console.log('Services data structure:', servicesData);
+  }
+  
+  // Filter active services - include services where isActive is true or undefined/null (default to active)
+  const activeServices = services.filter((s: any) => {
+    // If isActive is explicitly false, exclude it
+    // Otherwise include it (true, undefined, null all mean active)
+    return s.isActive !== false;
+  });
+  
+  // If no active services but services exist, show all services for debugging
+  const servicesToShow = activeServices.length > 0 ? activeServices : services;
+  
+  const selectedClient = clients.find((c) => c.id === formData.clientId);
+
+  // Validation function
+  const validateForm = (): { isValid: boolean; errors: string[] } => {
+    const errors: string[] = [];
+
+    if (!formData.clientId) {
+      errors.push("Client is required");
+    }
+
+    if (!formData.service) {
+      errors.push("Service type is required");
+    }
+
+    if (!formData.fee) {
+      errors.push("Service fee is required");
+    } else {
+      const fee = parseFloat(formData.fee);
+      if (isNaN(fee) || fee <= 0) {
+        errors.push("Fee must be a positive number");
+      }
+    }
+
+    if (formData.validity) {
+      const validity = parseInt(formData.validity);
+      if (isNaN(validity) || validity <= 0) {
+        errors.push("Validity period must be a positive number");
+      }
+    }
+
+    return {
+      isValid: errors.length === 0,
+      errors,
+    };
+  };
+
+  const validation = validateForm();
+  const isFormValid = validation.isValid;
+
+  const handleSubmit = async (e: React.FormEvent, sendImmediately = false) => {
     e.preventDefault();
-    
-    // Validation
-    if (!formData.clientId || !formData.service || !formData.fee) {
-      toast.error('Please fill in all required fields');
+
+    const validationResult = validateForm();
+    if (!validationResult.isValid) {
+      toast.error(
+        validationResult.errors[0] || "Please fill in all required fields"
+      );
       return;
     }
 
-    // Here you would normally save to backend/database
-    const proposalData = {
-      ...formData,
-      status: sendImmediately ? 'Sent' : 'Draft',
-      sentDate: sendImmediately ? new Date().toISOString() : undefined,
-    };
-    
-    console.log('New proposal data:', proposalData);
-    
-    toast.success(sendImmediately ? 'Proposal sent successfully!' : 'Proposal saved as draft!');
-    router.push('/proposals');
+    const fee = parseFloat(formData.fee);
+    if (isNaN(fee) || fee <= 0) {
+      toast.error("Fee must be a positive number");
+      return;
+    }
+
+    try {
+      // Calculate validUntil date
+      const validUntil = formData.validity
+        ? new Date(
+            Date.now() + parseInt(formData.validity) * 24 * 60 * 60 * 1000
+          )
+        : undefined;
+
+      // Store content in notes as JSON
+      const notesWithContent = JSON.stringify({
+        content: formData.content,
+        notes: formData.notes || "",
+      });
+
+      await createProposalMutation.mutateAsync({
+        clientId: formData.clientId,
+        service: formData.service,
+        fee,
+        status: sendImmediately ? "SENT" : "DRAFT",
+        validUntil: validUntil?.toISOString(),
+        notes: notesWithContent,
+      });
+
+      // Clear sessionStorage after successful submission
+      if (typeof window !== 'undefined') {
+        sessionStorage.removeItem('proposalFormData');
+      }
+
+      toast.success(
+        sendImmediately
+          ? "Proposal sent successfully!"
+          : "Proposal saved as draft!"
+      );
+      router.push("/proposals");
+    } catch (error: any) {
+      toast.error(error.message || "Failed to create proposal");
+    }
   };
 
   const handleChange = (field: string, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
+    setFormData((prev) => {
+      const updated = { ...prev, [field]: value };
+      // Save to sessionStorage for preview
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem('proposalFormData', JSON.stringify(updated));
+      }
+      return updated;
+    });
   };
 
   const handleContentChange = (field: string, value: string) => {
-    setFormData(prev => ({
-      ...prev,
-      content: {
-        ...prev.content,
-        [field]: value,
-      },
-    }));
+    setFormData((prev) => {
+      const updated = {
+        ...prev,
+        content: {
+          ...prev.content,
+          [field]: value,
+        },
+      };
+      // Save to sessionStorage for preview
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem('proposalFormData', JSON.stringify(updated));
+      }
+      return updated;
+    });
   };
-
-  const selectedClient = mockClients.find(c => c.id === formData.clientId);
 
   return (
     <div className="space-y-6">
@@ -83,22 +226,36 @@ export default function NewProposal() {
           <Button
             variant="ghost"
             size="icon"
-            onClick={() => router.push('/proposals')}
+            onClick={() => router.push("/proposals")}
           >
             <ArrowLeft className="w-5 h-5" />
           </Button>
           <div>
             <h1>Create New Proposal</h1>
-            <p className="text-slate-600">Draft a service proposal with editable PDF content</p>
+            <p className="text-slate-600">
+              Draft a service proposal with editable PDF content
+            </p>
           </div>
         </div>
         <Button
           variant="outline"
           className="gap-2"
           onClick={() => {
-            sessionStorage.setItem('proposalFormData', JSON.stringify(formData));
-            router.push('/proposals/preview');
+            const validationResult = validateForm();
+            if (!validationResult.isValid) {
+              toast.error(
+                validationResult.errors[0] ||
+                  "Please fill in all required fields"
+              );
+              return;
+            }
+            sessionStorage.setItem(
+              "proposalFormData",
+              JSON.stringify(formData)
+            );
+            router.push("/proposals/preview");
           }}
+          disabled={!isFormValid}
         >
           <Eye className="w-4 h-4" />
           Preview PDF
@@ -112,7 +269,9 @@ export default function NewProposal() {
             <Card>
               <CardHeader>
                 <CardTitle>Basic Information</CardTitle>
-                <CardDescription>Enter the client and service details</CardDescription>
+                <CardDescription>
+                  Enter the client and service details
+                </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
                 {/* Client Selection */}
@@ -122,22 +281,38 @@ export default function NewProposal() {
                   </Label>
                   <Select
                     value={formData.clientId}
-                    onValueChange={(value: string) => handleChange('clientId', value)}
+                    onValueChange={(value: string) =>
+                      handleChange("clientId", value)
+                    }
                   >
-                    <SelectTrigger id="clientId">
+                    <SelectTrigger
+                      id="clientId"
+                      className={!formData.clientId ? "border-red-300" : ""}
+                    >
                       <SelectValue placeholder="Choose a client" />
                     </SelectTrigger>
                     <SelectContent>
-                      {mockClients.map((client) => (
+                      {clients.map((client) => (
                         <SelectItem key={client.id} value={client.id}>
                           {client.name} - {client.email}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
+                  {!formData.clientId && (
+                    <p className="text-xs text-red-500">
+                      Client selection is required
+                    </p>
+                  )}
                   {selectedClient && (
                     <p className="text-xs text-slate-500">
-                      Status: {selectedClient.status} | KYC: {selectedClient.kycStatus}
+                      Status: {selectedClient.status} | KYC:{" "}
+                      {selectedClient.kycStatus}
+                    </p>
+                  )}
+                  {clients.length === 0 && (
+                    <p className="text-xs text-slate-500">
+                      No clients available
                     </p>
                   )}
                 </div>
@@ -149,20 +324,55 @@ export default function NewProposal() {
                   </Label>
                   <Select
                     value={formData.service}
-                    onValueChange={(value: string) => handleChange('service', value)}
+                    onValueChange={(value: string) =>
+                      handleChange("service", value)
+                    }
                   >
-                    <SelectTrigger id="service">
+                    <SelectTrigger
+                      id="service"
+                      className={!formData.service ? "border-red-300" : ""}
+                    >
                       <SelectValue placeholder="Select service" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="Account Setup">Account Setup</SelectItem>
-                      <SelectItem value="Managed Account Service">Managed Account Service</SelectItem>
-                      <SelectItem value="Portfolio Management">Portfolio Management</SelectItem>
-                      <SelectItem value="Trading Advisory">Trading Advisory</SelectItem>
-                      <SelectItem value="Risk Management Consulting">Risk Management Consulting</SelectItem>
-                      <SelectItem value="Custom Trading Solution">Custom Trading Solution</SelectItem>
+                      {servicesData?.isLoading ? (
+                        <div className="px-2 py-1.5 text-sm text-slate-500">
+                          Loading services...
+                        </div>
+                      ) : servicesToShow.length > 0 ? (
+                        servicesToShow.map((service: any) => (
+                          <SelectItem key={service.id} value={service.name}>
+                            {service.name}
+                            {service.description && (
+                              <span className="text-slate-500 ml-2">
+                                - {service.description}
+                              </span>
+                            )}
+                          </SelectItem>
+                        ))
+                      ) : services.length > 0 ? (
+                        <div className="px-2 py-1.5 text-sm text-slate-500">
+                          No active services. {services.length} service(s) found
+                          but all are inactive.
+                        </div>
+                      ) : (
+                        <div className="px-2 py-1.5 text-sm text-slate-500">
+                          No services available
+                        </div>
+                      )}
                     </SelectContent>
                   </Select>
+                  {!formData.service && (
+                    <p className="text-xs text-red-500">
+                      Service type is required
+                    </p>
+                  )}
+                  {activeServices.length === 0 && (
+                    <p className="text-xs text-slate-500">
+                      No active services available. Please add services in
+                      Settings.
+                    </p>
+                  )}
                 </div>
 
                 {/* Fee and Validity */}
@@ -176,9 +386,26 @@ export default function NewProposal() {
                       type="number"
                       placeholder="5000"
                       value={formData.fee}
-                      onChange={(e) => handleChange('fee', e.target.value)}
+                      onChange={(e) => handleChange("fee", e.target.value)}
+                      className={
+                        !formData.fee || parseFloat(formData.fee) <= 0
+                          ? "border-red-300"
+                          : ""
+                      }
                       required
                     />
+                    {!formData.fee && (
+                      <p className="text-xs text-red-500">
+                        Service fee is required
+                      </p>
+                    )}
+                    {formData.fee &&
+                      (isNaN(parseFloat(formData.fee)) ||
+                        parseFloat(formData.fee) <= 0) && (
+                        <p className="text-xs text-red-500">
+                          Fee must be a positive number
+                        </p>
+                      )}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="validity">Proposal Valid For (days)</Label>
@@ -187,8 +414,22 @@ export default function NewProposal() {
                       type="number"
                       placeholder="30"
                       value={formData.validity}
-                      onChange={(e) => handleChange('validity', e.target.value)}
+                      onChange={(e) => handleChange("validity", e.target.value)}
+                      className={
+                        formData.validity &&
+                        (isNaN(parseInt(formData.validity)) ||
+                          parseInt(formData.validity) <= 0)
+                          ? "border-red-300"
+                          : ""
+                      }
                     />
+                    {formData.validity &&
+                      (isNaN(parseInt(formData.validity)) ||
+                        parseInt(formData.validity) <= 0) && (
+                        <p className="text-xs text-red-500">
+                          Validity must be a positive number
+                        </p>
+                      )}
                   </div>
                 </div>
               </CardContent>
@@ -198,7 +439,9 @@ export default function NewProposal() {
             <Card>
               <CardHeader>
                 <CardTitle>Proposal Document Content</CardTitle>
-                <CardDescription>Edit the content that will appear in the PDF</CardDescription>
+                <CardDescription>
+                  Edit the content that will appear in the PDF
+                </CardDescription>
               </CardHeader>
               <CardContent>
                 <Tabs defaultValue="introduction" className="w-full">
@@ -218,7 +461,9 @@ export default function NewProposal() {
                       placeholder="Opening message to the client..."
                       rows={8}
                       value={formData.content.introduction}
-                      onChange={(e) => handleContentChange('introduction', e.target.value)}
+                      onChange={(e) =>
+                        handleContentChange("introduction", e.target.value)
+                      }
                     />
                   </TabsContent>
 
@@ -229,7 +474,9 @@ export default function NewProposal() {
                       placeholder="Detailed description of the service offering..."
                       rows={8}
                       value={formData.content.serviceDetails}
-                      onChange={(e) => handleContentChange('serviceDetails', e.target.value)}
+                      onChange={(e) =>
+                        handleContentChange("serviceDetails", e.target.value)
+                      }
                     />
                   </TabsContent>
 
@@ -240,7 +487,9 @@ export default function NewProposal() {
                       placeholder="List of deliverables..."
                       rows={8}
                       value={formData.content.deliverables}
-                      onChange={(e) => handleContentChange('deliverables', e.target.value)}
+                      onChange={(e) =>
+                        handleContentChange("deliverables", e.target.value)
+                      }
                     />
                   </TabsContent>
 
@@ -251,7 +500,9 @@ export default function NewProposal() {
                       placeholder="Project phases and timeline..."
                       rows={8}
                       value={formData.content.timeline}
-                      onChange={(e) => handleContentChange('timeline', e.target.value)}
+                      onChange={(e) =>
+                        handleContentChange("timeline", e.target.value)
+                      }
                     />
                   </TabsContent>
 
@@ -262,18 +513,27 @@ export default function NewProposal() {
                       placeholder="Payment schedule and terms..."
                       rows={8}
                       value={formData.content.paymentTerms}
-                      onChange={(e) => handleContentChange('paymentTerms', e.target.value)}
+                      onChange={(e) =>
+                        handleContentChange("paymentTerms", e.target.value)
+                      }
                     />
                   </TabsContent>
 
                   <TabsContent value="terms" className="space-y-2 mt-4">
-                    <Label htmlFor="termsAndConditions">Terms & Conditions</Label>
+                    <Label htmlFor="termsAndConditions">
+                      Terms & Conditions
+                    </Label>
                     <Textarea
                       id="termsAndConditions"
                       placeholder="Legal terms and conditions..."
                       rows={8}
                       value={formData.content.termsAndConditions}
-                      onChange={(e) => handleContentChange('termsAndConditions', e.target.value)}
+                      onChange={(e) =>
+                        handleContentChange(
+                          "termsAndConditions",
+                          e.target.value
+                        )
+                      }
                     />
                   </TabsContent>
                 </Tabs>
@@ -281,59 +541,41 @@ export default function NewProposal() {
             </Card>
           </div>
 
-          {/* Sidebar - Status and Actions */}
+          {/* Sidebar - Actions */}
           <div className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Proposal Status</CardTitle>
-                <CardDescription>Set the current status</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {/* Status */}
-                <div className="space-y-2">
-                  <Label htmlFor="status">Status</Label>
-                  <Select
-                    value={formData.status}
-                    onValueChange={(value: string) => handleChange('status', value)}
-                  >
-                    <SelectTrigger id="status">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Draft">Draft</SelectItem>
-                      <SelectItem value="Sent">Sent</SelectItem>
-                      <SelectItem value="Accepted">Accepted</SelectItem>
-                      <SelectItem value="Rejected">Rejected</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </CardContent>
-            </Card>
-
             {/* Action Buttons */}
             <Card>
               <CardContent className="pt-6 space-y-3">
-                <Button 
+                <Button
                   type="button"
                   className="w-full gap-2"
-                  onClick={(e: React.MouseEvent<HTMLButtonElement>) => handleSubmit(e, true)}
+                  onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
+                    e.preventDefault();
+                    handleSubmit(e as any, true);
+                  }}
+                  disabled={createProposalMutation.isPending || !isFormValid}
                 >
                   <Send className="w-4 h-4" />
-                  Send to Client
+                  {createProposalMutation.isPending
+                    ? "Sending..."
+                    : "Send to Client"}
                 </Button>
-                <Button 
-                  type="submit" 
+                <Button
+                  type="submit"
                   variant="outline"
                   className="w-full gap-2"
+                  disabled={createProposalMutation.isPending || !isFormValid}
                 >
                   <Save className="w-4 h-4" />
-                  Save as Draft
+                  {createProposalMutation.isPending
+                    ? "Saving..."
+                    : "Save as Draft"}
                 </Button>
                 <Button
                   type="button"
                   variant="ghost"
                   className="w-full"
-                  onClick={() => router.push('/proposals')}
+                  onClick={() => router.push("/proposals")}
                 >
                   Cancel
                 </Button>

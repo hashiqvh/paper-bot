@@ -37,7 +37,7 @@ export default function Documents() {
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
 
   // Find the client record for logged-in client users
-  const currentClient = user?.role === 'client' 
+  const currentClient = user?.role === 'CLIENT' 
     ? mockClients.find(c => c.email === user.email)
     : null;
 
@@ -52,7 +52,7 @@ export default function Documents() {
   );
 
   // For clients, only show their own documents
-  const clientDocuments = user?.role === 'client' && currentClient
+  const clientDocuments = user?.role === 'CLIENT' && currentClient
     ? allClientDocuments.filter(doc => doc.clientId === currentClient.id)
     : allClientDocuments;
 
@@ -88,8 +88,8 @@ export default function Documents() {
   };
 
   // Determine page title and description based on user role
-  const pageTitle = user?.role === 'client' ? 'My Documents' : 'Documents';
-  const pageDescription = user?.role === 'client' 
+  const pageTitle = user?.role === 'CLIENT' ? 'My Documents' : 'Documents';
+  const pageDescription = user?.role === 'CLIENT' 
     ? 'View your documents, agreements, and compliance files'
     : 'Manage client documents and compliance files';
 
@@ -100,7 +100,7 @@ export default function Documents() {
           <h1>{pageTitle}</h1>
           <p className="text-slate-600 mt-1">{pageDescription}</p>
         </div>
-        {user?.role !== 'client' && (
+        {user?.role !== 'CLIENT' && (
           <Button className="gap-2 w-full sm:w-auto" onClick={() => router.push('/documents/new')}>
             <Plus className="w-4 h-4" />
             <span className="hidden sm:inline">Upload Document</span>
@@ -110,7 +110,7 @@ export default function Documents() {
       </div>
 
       {/* Summary Cards - Different views for clients vs admin/managers */}
-      {user?.role === 'client' ? (
+      {user?.role === 'CLIENT' ? (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           <Card>
             <CardContent className="pt-6">
@@ -175,7 +175,7 @@ export default function Documents() {
         </div>
       )}
 
-      {user?.role === 'client' ? (
+      {user?.role === 'CLIENT' ? (
         // Client view - no tabs, just their documents
         <Card>
           <CardHeader>
